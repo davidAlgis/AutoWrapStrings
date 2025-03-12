@@ -1,6 +1,6 @@
+import re
 import sublime
 import sublime_plugin
-import re
 
 def get_literal_indent(text, pos):
     """
@@ -118,14 +118,21 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
 def process_text(text, max_len):
     """
     Finds all Python string literals in the file and processes them.
+    Ignores raw strings entirely.
     """
-    pattern = r'(?P<prefix>[fFrRuUbB]*)(?P<quote>"""|\'\'\'|"|\')(?P<content>.*?)(?P=quote)'
+    pattern = r'(?P<prefix>[fFrRuUbB]*)(?P<quote>"""|\'\'\'|"|\')(?P<content>(?:\\.|(?!(?P=quote)).)*)(?P=quote)'
+
     def repl(match):
-        prefix = match.group('prefix') or ''
-        quote = match.group('quote')
+        prefix = match.group("prefix") or ""
+        # Skip raw literals immediately
+        if "r" in prefix.lower():
+            return match.group(0)
+        quote = match.group("quote")
         literal_indent = get_literal_indent(text, match.start())
         return replace_string(match, max_len, literal_indent, prefix, quote)
+
     return re.sub(pattern, repl, text, flags=re.DOTALL)
+
 
 class AutoWrapOnSave(sublime_plugin.EventListener):
     def on_pre_save(self, view):
