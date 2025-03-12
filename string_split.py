@@ -90,7 +90,9 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
     For single/double-quoted strings, it splits the content into adjacent literals.
     """
     if len(quote) == 3:
-        return replace_triple_quote(match, max_len, prefix, quote)
+        # Temporarily leave triple-quoted strings unchanged.
+        # return replace_triple_quote(match, max_len, prefix, quote)
+        return match.group(0)
     else:
         # For single/double-quoted strings:
         line_indent_match = re.match(r'\s*', literal_indent)
