@@ -8,7 +8,6 @@ def get_literal_indent(text, pos):
     """
     Returns the full text from the beginning of the line up to pos.
     (Used only for single/double-quoted strings to compute available width.)
-    
     """
     line_start = text.rfind("\n", 0, pos) + 1
     return text[line_start:pos]
@@ -17,7 +16,6 @@ def get_literal_indent(text, pos):
 def wrap_single_line(text, max_len):
     """
     Splits a single line of text into pieces of at most max_len characters.
-    
     """
     return re.findall(".{1," + str(max_len) + "}", text)
 
@@ -25,7 +23,6 @@ def wrap_single_line(text, max_len):
 def wrap_string_content(content, max_len):
     """
     Splits content (which may contain explicit newlines) into wrapped lines.
-    
     """
     lines = content.splitlines()
     wrapped_lines = []
@@ -39,18 +36,21 @@ def wrap_string_content(content, max_len):
 
 def replace_triple_quote(match, max_len, prefix, quote):
     """
-    Processes a triple-quoted string literal.
+        Processes a triple-quoted string literal.
 
-    For each line in the literal that exceeds max_len:
-      1. If a following line exists, move words from the end of the line (one
-         by one) to the beginning of the next line (keeping that line’s
-         indentation) until the line's length is below max_len.
-      2. If the current line is the last content line (i.e. the line before the
-         closing quotes), insert a new line (with the same indentation as the
-         current line) and move words there until the line's length is reduced
-below max_len.
-    Finally, the closing triple quotes are output with the same indentation as
-    the last content line.
+        For each line in the literal that exceeds max_len:
+          1. If a following line exists, move words from the end of the line
+             (one by one) to the beginning of the next line (keeping that
+             line’s indentation) until the line's length is below max_len.
+          2. If the current line is the last content line (i.e. the line before
+             the closing quotes), insert a new line (with the same indentation
+             as the current line) and move words there until the line's length
+    is reduced below max_len.
+        If no adjustments are needed, the literal is returned unchanged.
+        When adjustments are made, the closing triple quotes are output with
+        the same indentation as the last content line.
+
+
     """
     content_raw = match.group("content")
     has_leading_newline = content_raw.startswith("\n")
@@ -61,6 +61,9 @@ below max_len.
     lines = content_to_wrap.splitlines()
     if not lines:
         return "{}{}{}".format(prefix, quote, quote)
+
+    # Keep a copy of the original lines.
+    original_lines = list(lines)
 
     def adjust_lines(lines, max_len):
         i = 0
@@ -91,15 +94,14 @@ below max_len.
                             new_next = indent + last_word
                         lines[i] = line
                         lines[i + 1] = new_next
-                    # Update working copy of line.
-                    line = lines[i]
+                        # Update the working copy of line.
+                        line = lines[i]
                 else:
                     # Rule 2: This is the last line.
                     indent_match = re.match(r"\s*", line)
                     indent = indent_match.group(0) if indent_match else ""
                     # Insert a new line after the current one with the same indentation.
                     lines.insert(i + 1, indent)
-                    # Now move words from the end of the current line to this new line.
                     while len(line) > max_len:
                         last_space = line.rfind(" ")
                         if last_space == -1:
@@ -121,14 +123,17 @@ below max_len.
                             new_line = indent + last_word
                         lines[i] = line
                         lines[i + 1] = new_line
-                    line = lines[i]
+                        line = lines[i]
             i += 1
         return lines
 
     adjusted_lines = adjust_lines(lines, max_len)
+    # If no adjustments were made, return the original literal unchanged.
+    if original_lines == adjusted_lines:
+        return match.group(0)
     new_content = "\n".join(adjusted_lines)
     if has_leading_newline:
-        # For the closing triple quote, use the indentation from the last adjusted content line.
+        # Use the indentation from the last adjusted content line for closing quotes.
         closing_indent_match = re.match(r"\s*", adjusted_lines[-1])
         closing_indent = (
             closing_indent_match.group(0) if closing_indent_match else ""
@@ -146,11 +151,12 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
 
     For triple-quoted strings, it calls replace_triple_quote.
     For single/double-quoted strings, it splits the content into adjacent
+    literals.
     """
     if len(quote) == 3:
         # Temporarily leave triple-quoted strings unchanged.
-        # return replace_triple_quote(match, max_len, prefix, quote)
-        return match.group(0)
+        return replace_triple_quote(match, max_len, prefix, quote)
+        # return match.group(0)
     else:
         # For single/double-quoted strings:
         line_indent_match = re.match(r"\s*", literal_indent)
@@ -186,7 +192,6 @@ def process_text(text, max_len):
     """
     Finds all Python string literals in the file and processes them.
     Ignores raw strings entirely.
-    
     """
     pattern = r'(?P<prefix>[fFrRuUbB]*)(?P<quote>"""|\'\'\'|"|\')(?P<content>(?:\\.|(?!(?P=quote)).)*)(?P=quote)'
 
