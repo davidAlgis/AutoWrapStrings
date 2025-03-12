@@ -33,41 +33,39 @@ def replace_triple_quote(match, max_len, prefix, quote):
     """
     Processes a triple-quoted string literal.
     
-    For triple-quoted strings, we want to output:
-      {prefix}{quote}
-      {line_indent + wrapped content lines}
-      {line_indent}{quote}
-    where line_indent is the whitespace indent of the literal’s opening line.
-    (The assignment text preceding the literal is not reinserted.)
+    For triple-quoted strings we want to output either:
+    
+        {prefix}{quote}
+        {line_indent + wrapped content lines}
+        {line_indent}{quote}
+    
+    or, if the original literal did not have a newline immediately after the opening
+    triple quotes, we output without adding an extra newline.
+    
+    Here, we check if the original content started with a newline. If it did, we preserve
+    that behavior; otherwise, we output the wrapped content immediately after the opening quotes.
     """
-    content = match.group('content')
-    lines = content.splitlines()
+    content_raw = match.group('content')
+    has_leading_newline = content_raw.startswith("\n")
+    # Remove any leading newline for wrapping if present.
+    content_to_wrap = content_raw.lstrip("\n") if has_leading_newline else content_raw
+    lines = content_to_wrap.splitlines()
     if not lines:
         return "{}{}{}".format(prefix, quote, quote)
-    
-    # Compute the whitespace indent from the start of the literal.
-    # (Since the match does not include the assignment text, we use the prefix to extract indent.)
+    # Compute whitespace indent from the prefix (which here is used for extracting indent)
     line_indent_match = re.match(r'\s*', prefix)
-    if line_indent_match:
-        line_indent = line_indent_match.group(0)
-    else:
-        line_indent = ""
-    
-    # Compute common indent of nonblank content lines.
+    line_indent = line_indent_match.group(0) if line_indent_match else ""
+    # Compute common indent from nonblank content lines.
     def leading_spaces(s):
         return len(s) - len(s.lstrip(" "))
     non_blank = [line for line in lines if line.strip()]
     common = min(leading_spaces(line) for line in non_blank) if non_blank else 0
     dedented_lines = [line[common:] if len(line) >= common else line for line in lines]
-    
-    # Allowed width for content lines is max_len minus the whitespace indent.
+    # Allowed width for each wrapped content line is max_len minus the indent.
     allowed_width = max_len - len(line_indent)
-    
-    # If all dedented lines already fit, return the literal unchanged.
     if all(len(line) <= allowed_width for line in dedented_lines):
-        return "{}{}{}{}".format(prefix, quote, content, quote)
-    
-    # Otherwise, rewrap each dedented line.
+        # If nothing needs wrapping, return the literal unchanged.
+        return "{}{}{}{}".format(prefix, quote, content_raw, quote)
     new_lines = []
     for line in dedented_lines:
         if line.strip() == "":
@@ -75,33 +73,30 @@ def replace_triple_quote(match, max_len, prefix, quote):
         else:
             wrapped = wrap_single_line(line, allowed_width)
             new_lines.extend(wrapped)
-    # Re-add the common indent that was removed.
     common_indent_str = " " * common
     new_content = "\n".join(line_indent + common_indent_str + l for l in new_lines)
-    
-    # Build the final triple-quoted literal.
-    return "{}{}\n{}\n{}{}".format(prefix, quote, new_content, line_indent, quote)
+    if has_leading_newline:
+        # Preserve a newline after the opening quotes.
+        return "{}{}\n{}\n{}{}".format(prefix, quote, new_content, line_indent, quote)
+    else:
+        # Do not add an extra newline after the opening quotes.
+        return "{}{}{}{}".format(prefix, quote, new_content, quote)
 
 def replace_string(match, max_len, literal_indent, prefix, quote):
     """
     Processes a string literal.
     
-    For triple-quoted strings, calls replace_triple_quote (ignoring literal_indent).
-    For single/double-quoted strings, splits the content into adjacent literals using
-    literal_indent to compute available width.
+    For triple-quoted strings, it calls replace_triple_quote.
+    For single/double-quoted strings, it splits the content into adjacent literals.
     """
     if len(quote) == 3:
         return replace_triple_quote(match, max_len, prefix, quote)
     else:
         # For single/double-quoted strings:
         line_indent_match = re.match(r'\s*', literal_indent)
-        if line_indent_match:
-            line_indent = line_indent_match.group(0)
-        else:
-            line_indent = ""
-        first_line_max = max_len - len(literal_indent) - 2  # subtract the two quotes
+        line_indent = line_indent_match.group(0) if line_indent_match else ""
+        first_line_max = max_len - len(literal_indent) - 2  # subtracting the two quotes
         other_lines_max = max_len - len(line_indent) - 2
-        
         content = match.group('content')
         wrapped_lines = []
         remaining = content
@@ -112,7 +107,6 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
             remaining = remaining[first_line_max:]
             if remaining:
                 wrapped_lines.extend(wrap_single_line(remaining, other_lines_max))
-        
         literals = []
         # First literal uses literal_indent and prefix.
         literals.append("{}{}{}{}".format(prefix, quote, wrapped_lines[0], quote))
@@ -126,13 +120,11 @@ def process_text(text, max_len):
     Finds all Python string literals in the file and processes them.
     """
     pattern = r'(?P<prefix>[fFrRuUbB]*)(?P<quote>"""|\'\'\'|"|\')(?P<content>.*?)(?P=quote)'
-    
     def repl(match):
         prefix = match.group('prefix') or ''
         quote = match.group('quote')
         literal_indent = get_literal_indent(text, match.start())
         return replace_string(match, max_len, literal_indent, prefix, quote)
-    
     return re.sub(pattern, repl, text, flags=re.DOTALL)
 
 class AutoWrapOnSave(sublime_plugin.EventListener):
@@ -140,11 +132,9 @@ class AutoWrapOnSave(sublime_plugin.EventListener):
         file_name = view.file_name() or ""
         if not file_name.endswith(".py"):
             return
-        
         region = sublime.Region(0, view.size())
         original_text = view.substr(region)
         max_len = 79
-        
         new_text = process_text(original_text, max_len)
         if new_text != original_text:
             view.run_command("auto_wrap_replace", {"text": new_text})
