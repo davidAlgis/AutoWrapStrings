@@ -8,6 +8,7 @@ def get_literal_indent(text, pos):
     """
     Returns the full text from the beginning of the line up to pos.
     (Used only for single/double-quoted strings to compute available width.)
+    
     """
     line_start = text.rfind("\n", 0, pos) + 1
     return text[line_start:pos]
@@ -16,6 +17,7 @@ def get_literal_indent(text, pos):
 def wrap_single_line(text, max_len):
     """
     Splits a single line of text into pieces of at most max_len characters.
+    
     """
     return re.findall(".{1," + str(max_len) + "}", text)
 
@@ -23,6 +25,7 @@ def wrap_single_line(text, max_len):
 def wrap_string_content(content, max_len):
     """
     Splits content (which may contain explicit newlines) into wrapped lines.
+    
     """
     lines = content.splitlines()
     wrapped_lines = []
@@ -38,65 +41,102 @@ def replace_triple_quote(match, max_len, prefix, quote):
     """
     Processes a triple-quoted string literal.
 
-    For triple-quoted strings we want to output either:
-
-        {prefix}{quote}
-        {line_indent + wrapped content lines}
-        {line_indent}{quote}
-
-    or, if the original literal did not have a newline immediately after the opening
-    triple quotes, we output without adding an extra newline.
-
-    Here, we check if the original content started with a newline. If it did, we preserve
-    that behavior; otherwise, we output the wrapped content immediately after the opening quotes.
+    For each line in the literal that exceeds max_len:
+      1. If a following line exists, move words from the end of the line (one
+         by one) to the beginning of the next line (keeping that line’s
+         indentation) until the line's length is below max_len.
+      2. If the current line is the last content line (i.e. the line before the
+         closing quotes), insert a new line (with the same indentation as the
+         current line) and move words there until the line's length is reduced
+below max_len.
+    Finally, the closing triple quotes are output with the same indentation as
+    the last content line.
     """
     content_raw = match.group("content")
     has_leading_newline = content_raw.startswith("\n")
-    # Remove any leading newline for wrapping if present.
+    # Remove any leading newline for processing if present.
     content_to_wrap = (
         content_raw.lstrip("\n") if has_leading_newline else content_raw
     )
     lines = content_to_wrap.splitlines()
     if not lines:
         return "{}{}{}".format(prefix, quote, quote)
-    # Compute whitespace indent from the prefix (which here is used for extracting indent)
-    line_indent_match = re.match(r"\s*", prefix)
-    line_indent = line_indent_match.group(0) if line_indent_match else ""
 
-    # Compute common indent from nonblank content lines.
-    def leading_spaces(s):
-        return len(s) - len(s.lstrip(" "))
+    def adjust_lines(lines, max_len):
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            # Process this line if it exceeds max_len.
+            if len(line) > max_len:
+                # If there is a next line, apply rule 1.
+                if i < len(lines) - 1:
+                    while len(line) > max_len:
+                        last_space = line.rfind(" ")
+                        if last_space == -1:
+                            # Cannot break this line further.
+                            break
+                        # Remove the last word from the line.
+                        last_word = line[last_space + 1 :]
+                        line = line[:last_space].rstrip()
+                        # Prepend the removed word to the next line.
+                        next_line = lines[i + 1]
+                        indent_match = re.match(r"\s*", next_line)
+                        indent = indent_match.group(0) if indent_match else ""
+                        next_line_content = next_line.lstrip()
+                        if next_line_content:
+                            new_next = (
+                                indent + last_word + " " + next_line_content
+                            )
+                        else:
+                            new_next = indent + last_word
+                        lines[i] = line
+                        lines[i + 1] = new_next
+                    # Update working copy of line.
+                    line = lines[i]
+                else:
+                    # Rule 2: This is the last line.
+                    indent_match = re.match(r"\s*", line)
+                    indent = indent_match.group(0) if indent_match else ""
+                    # Insert a new line after the current one with the same indentation.
+                    lines.insert(i + 1, indent)
+                    # Now move words from the end of the current line to this new line.
+                    while len(line) > max_len:
+                        last_space = line.rfind(" ")
+                        if last_space == -1:
+                            break
+                        last_word = line[last_space + 1 :]
+                        line = line[:last_space].rstrip()
+                        new_line = lines[i + 1]
+                        # new_line already starts with indent.
+                        new_line_content = (
+                            new_line[len(indent) :]
+                            if new_line.startswith(indent)
+                            else new_line
+                        )
+                        if new_line_content:
+                            new_line = (
+                                indent + last_word + " " + new_line_content
+                            )
+                        else:
+                            new_line = indent + last_word
+                        lines[i] = line
+                        lines[i + 1] = new_line
+                    line = lines[i]
+            i += 1
+        return lines
 
-    non_blank = [line for line in lines if line.strip()]
-    common = (
-        min(leading_spaces(line) for line in non_blank) if non_blank else 0
-    )
-    dedented_lines = [
-        line[common:] if len(line) >= common else line for line in lines
-    ]
-    # Allowed width for each wrapped content line is max_len minus the indent.
-    allowed_width = max_len - len(line_indent)
-    if all(len(line) <= allowed_width for line in dedented_lines):
-        # If nothing needs wrapping, return the literal unchanged.
-        return "{}{}{}{}".format(prefix, quote, content_raw, quote)
-    new_lines = []
-    for line in dedented_lines:
-        if line.strip() == "":
-            new_lines.append("")
-        else:
-            wrapped = wrap_single_line(line, allowed_width)
-            new_lines.extend(wrapped)
-    common_indent_str = " " * common
-    new_content = "\n".join(
-        line_indent + common_indent_str + l for l in new_lines
-    )
+    adjusted_lines = adjust_lines(lines, max_len)
+    new_content = "\n".join(adjusted_lines)
     if has_leading_newline:
-        # Preserve a newline after the opening quotes.
+        # For the closing triple quote, use the indentation from the last adjusted content line.
+        closing_indent_match = re.match(r"\s*", adjusted_lines[-1])
+        closing_indent = (
+            closing_indent_match.group(0) if closing_indent_match else ""
+        )
         return "{}{}\n{}\n{}{}".format(
-            prefix, quote, new_content, line_indent, quote
+            prefix, quote, new_content, closing_indent, quote
         )
     else:
-        # Do not add an extra newline after the opening quotes.
         return "{}{}{}{}".format(prefix, quote, new_content, quote)
 
 
@@ -105,7 +145,7 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
     Processes a string literal.
 
     For triple-quoted strings, it calls replace_triple_quote.
-    For single/double-quoted strings, it splits the content into adjacent literals.
+    For single/double-quoted strings, it splits the content into adjacent
     """
     if len(quote) == 3:
         # Temporarily leave triple-quoted strings unchanged.
@@ -146,6 +186,7 @@ def process_text(text, max_len):
     """
     Finds all Python string literals in the file and processes them.
     Ignores raw strings entirely.
+    
     """
     pattern = r'(?P<prefix>[fFrRuUbB]*)(?P<quote>"""|\'\'\'|"|\')(?P<content>(?:\\.|(?!(?P=quote)).)*)(?P=quote)'
 
