@@ -5,15 +5,13 @@ import re
 def get_literal_indent(text, pos):
     """
     Returns the full text from the beginning of the line up to pos.
-    E.g., for an assignment "    long_string = ", if pos is at the opening quote,
-    this returns "    long_string = ".
     """
     line_start = text.rfind('\n', 0, pos) + 1
     return text[line_start:pos]
 
 def wrap_single_line(text, max_len):
     """
-    Splits a single line into pieces of at most max_len characters.
+    Splits a single line of text into pieces of at most max_len characters.
     """
     return re.findall(".{1," + str(max_len) + "}", text)
 
@@ -32,38 +30,43 @@ def wrap_string_content(content, max_len):
 
 def replace_string(match, max_len, literal_indent, prefix, quote):
     """
-    Processes a string literal so that the overall line length (including text before
-    the literal) is within max_len.
+    Processes a string literal so that its wrapped replacement does not cause any
+    line to exceed max_len characters.
     
-    For the first line, we use the entire literal_indent (e.g. "    long_string = ").
-    For subsequent lines, we use only the whitespace indent.
+    For both triple-quoted and single/double-quoted strings, the text before the literal 
+    (literal_indent) is used only for calculating available width.
+    
+    For triple-quoted strings, the replacement is:
+      {quote}
+      {line_indent}{wrapped content lines}
+      {line_indent}{quote}
+      
+    For single/double-quoted strings, the replacement is split into adjacent string literals,
+    with the first literal using the full available width (based on literal_indent) and subsequent
+    literals using only the whitespace indent.
     """
     content = match.group('content')
-    # Compute the whitespace-only indent (the beginning spaces) from literal_indent.
+    # Extract only the whitespace indent (leading spaces) from literal_indent.
     line_indent_match = re.match(r'\s*', literal_indent)
     if line_indent_match:
         line_indent = line_indent_match.group(0)
     else:
         line_indent = ""
     
-    # Triple-quoted strings: preserve the triple quotes.
     if len(quote) == 3:
-        inner_max_len = max_len - len(literal_indent)
+        # Triple-quoted strings: do not reinsert literal_indent.
+        inner_max_len = max_len - len(line_indent)
         wrapped_lines = wrap_string_content(content.strip("\n"), inner_max_len)
-        inner_content = "\n".join(literal_indent + line for line in wrapped_lines)
-        return "{}{}\n{}\n{}{}".format(prefix, quote, inner_content, literal_indent, quote)
-    
-    # Single or double quoted strings:
+        inner_content = "\n".join(line_indent + line for line in wrapped_lines)
+        # Return only the triple-quoted literal (without duplicating the assignment text).
+        return "{}\n{}\n{}{}".format(quote, inner_content, line_indent, quote)
     else:
-        # Available width for the first segment takes into account the whole literal_indent.
-        first_line_max_len = max_len - len(literal_indent) - 2  # subtracting the 2 quotes
-        # Subsequent segments use only the whitespace indent.
+        # Single/double-quoted strings:
+        first_line_max_len = max_len - len(literal_indent) - 2  # subtracting the two quotes
         other_lines_max_len = max_len - len(line_indent) - 2
         
         wrapped_lines = []
         remaining = content
-        
-        # If the content fits on one line, leave it unchanged.
         if len(remaining) <= first_line_max_len and "\n" not in remaining:
             wrapped_lines.append(remaining)
         else:
@@ -73,11 +76,12 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
                 wrapped_lines.extend(wrap_single_line(remaining, other_lines_max_len))
         
         literals = []
-        # The first literal gets the full literal_indent and prefix.
+        # The first literal uses the prefix (which may be non-empty, e.g. for f-strings)
         literals.append("{}{}{}{}".format(prefix, quote, wrapped_lines[0], quote))
-        # Subsequent literals use the whitespace indent only.
+        # Subsequent literals are indented with only the whitespace indent.
         for seg in wrapped_lines[1:]:
             literals.append("{}{}{}{}".format(line_indent, quote, seg, quote))
+        # Adjacent string literals in Python are automatically concatenated.
         return "\n".join(literals)
 
 def process_text(text, max_len):
