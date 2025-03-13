@@ -1,4 +1,4 @@
 {
     "max-line-length": 79,
-    "apply_on_save": true
+    "apply_on_save": false
 }

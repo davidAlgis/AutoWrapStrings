@@ -197,7 +197,7 @@ class AutoWrapOnSave(sublime_plugin.EventListener):
     def on_pre_save(self, view):
         """Handle the pre-save event to apply auto-wrap to Python files."""
         settings = AutoWrapStringsSettings()
-        if not settings.get("apply_on_save", True):
+        if not settings.get("apply_on_save", False):
             return
         file_name = view.file_name() or ""
         if not file_name.endswith(".py"):
