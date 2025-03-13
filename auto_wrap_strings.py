@@ -9,6 +9,8 @@ import re
 import sublime
 import sublime_plugin
 
+from .settings import AutoWrapStringsSettings
+
 
 def get_literal_indent(text, pos):
     """Return the text from the start of the line up to pos.
@@ -194,12 +196,15 @@ class AutoWrapOnSave(sublime_plugin.EventListener):
 
     def on_pre_save(self, view):
         """Handle the pre-save event to apply auto-wrap to Python files."""
+        settings = AutoWrapStringsSettings()
+        if not settings.get("apply_on_save", True):
+            return
         file_name = view.file_name() or ""
         if not file_name.endswith(".py"):
             return
         region = sublime.Region(0, view.size())
         original_text = view.substr(region)
-        max_len = 79
+        max_len = settings.get("max-line-length", 79)
         new_text = process_text(original_text, max_len)
         if new_text != original_text:
             view.run_command("auto_wrap_replace", {"text": new_text})
@@ -215,3 +220,20 @@ class AutoWrapReplaceCommand(sublime_plugin.TextCommand):
         """Replace the file's content with auto wrapped text."""
         region = sublime.Region(0, self.view.size())
         self.view.replace(edit, region, text)
+
+
+class AutoWrapApplyCommand(sublime_plugin.TextCommand):
+    """Manually apply auto wrapping to string literals."""
+
+    def run(self, edit):
+        """Apply auto wrapping to the current file."""
+        settings = AutoWrapStringsSettings()
+        max_len = settings.get("max-line-length", 79)
+        region = sublime.Region(0, self.view.size())
+        original_text = self.view.substr(region)
+        new_text = process_text(original_text, max_len)
+        if new_text != original_text:
+            self.view.run_command("auto_wrap_replace", {"text": new_text})
+            sublime.status_message("Auto-wrap applied manually.")
+        else:
+            sublime.status_message("No auto-wrap needed.")

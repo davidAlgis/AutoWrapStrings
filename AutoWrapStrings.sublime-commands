@@ -1,0 +1,6 @@
+[
+    {
+        "caption": "AutoWrap: Apply Auto Wrap to File",
+        "command": "auto_wrap_apply"
+    }
+]
