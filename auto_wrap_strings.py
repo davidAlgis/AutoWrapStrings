@@ -5,6 +5,7 @@ in Sublime Text on file save.
 """
 
 import re
+import textwrap
 
 import sublime
 import sublime_plugin
@@ -22,8 +23,10 @@ def get_literal_indent(text, pos):
 
 
 def wrap_single_line(text, max_len):
-    """Split a single line into pieces of at most max_len characters."""
-    return re.findall(".{1," + str(max_len) + "}", text)
+    """Split a single line into pieces without breaking words."""
+    return textwrap.wrap(
+        text, width=max_len, break_long_words=False, break_on_hyphens=False
+    )
 
 
 def wrap_string_content(content, max_len):
@@ -150,17 +153,21 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
         first_line_max = max_len - len(literal_indent) - 2
         other_lines_max = max_len - len(line_indent) - 2
         content = match.group("content")
+
         wrapped_lines = []
         remaining = content
-        if len(remaining) <= first_line_max and "\n" not in remaining:
-            wrapped_lines.append(remaining)
-        else:
-            wrapped_lines.append(remaining[:first_line_max])
-            remaining = remaining[first_line_max:]
+
+        initial_wrap = wrap_single_line(remaining, first_line_max)
+        if initial_wrap:
+            wrapped_lines.append(initial_wrap[0])
+            remaining = remaining[len(initial_wrap[0]) :].lstrip()
             if remaining:
                 wrapped_lines.extend(
                     wrap_single_line(remaining, other_lines_max)
                 )
+        else:
+            wrapped_lines.append("")
+
         literals = []
         literals.append(
             "{}{}{}{}".format(prefix, quote, wrapped_lines[0], quote)
