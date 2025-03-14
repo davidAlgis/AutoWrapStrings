@@ -148,11 +148,17 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
     if len(quote) == 3:
         return replace_triple_quote(match, max_len, prefix, quote)
     else:
+        content = match.group("content")
+        # If the content of a single/double-quoted literal spans multiple lines,
+        # it likely isn't a valid literal (or is picked up from a comment).
+        # In that case, leave it unchanged.
+        if "\n" in content:
+            return match.group(0)
+
         line_indent_match = re.match(r"\s*", literal_indent)
         line_indent = line_indent_match.group(0) if line_indent_match else ""
         first_line_max = max_len - len(literal_indent) - 2
         other_lines_max = max_len - len(line_indent) - 2
-        content = match.group("content")
 
         wrapped_lines = []
         remaining = content
