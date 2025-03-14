@@ -169,11 +169,18 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
             wrapped_lines.append("")
 
         literals = []
+        # The first line always starts with the original prefix.
         literals.append(
             "{}{}{}{}".format(prefix, quote, wrapped_lines[0], quote)
         )
+        # For subsequent lines, if it's an f-string, include the prefix.
         for seg in wrapped_lines[1:]:
-            literals.append("{}{}{}{}".format(line_indent, quote, seg, quote))
+            additional_prefix = prefix if "f" in prefix.lower() else ""
+            literals.append(
+                "{}{}{}{}{}".format(
+                    line_indent, additional_prefix, quote, seg, quote
+                )
+            )
         return "\n".join(literals)
 
 
