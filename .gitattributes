@@ -1,0 +1,5 @@
+# Exclude gif
+*.gif export-ignore
+
+# Exclude test files
+*.test-script.py export-ignore
