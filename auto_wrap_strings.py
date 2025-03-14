@@ -1,7 +1,7 @@
 """Process string literals and comments for auto wrapping.
 
 This module implements auto wrap functionality for Python string literals
-and single-line comments in Sublime Text on file save.
+and both standalone and inline comments in Sublime Text on file save.
 """
 
 import re
@@ -213,7 +213,7 @@ def process_text(text, max_len):
 
 def wrap_comment_line(line, max_len):
     """
-    Wrap a single-line comment into multiple lines if it exceeds max_len.
+    Wrap a standalone comment line into multiple lines if it exceeds max_len.
     It preserves the indentation and '#' marker.
     """
     match = re.match(r"^(?P<indent>\s*#\s*)(?P<content>.*)$", line)
@@ -235,17 +235,108 @@ def wrap_comment_line(line, max_len):
     return "\n".join(indent + l for l in wrapped_lines)
 
 
+def wrap_inline_comment_line(line, max_len):
+    """
+    Wrap an inline comment (code followed by a comment) so that the comment text
+    is split into a first part on the same line and subsequent lines starting
+    with the same overall indentation and a '# ' marker.
+
+    For example, given:
+        platea = 0  # test if adding quote in comment result in some weird change himenaeos quis netus aene
+    it returns:
+        [
+            "platea = 0  # test if adding quote in comment result in some weird change",
+            "# himenaeos quis netus aene"
+        ]
+    or if the line is indented:
+        "    platea = 0  # test if adding quote in comment result in some weird change himenaeos quis netus aene"
+    it returns:
+        [
+            "    platea = 0  # test if adding quote in comment result in some weird change",
+            "    # himenaeos quis netus aene"
+        ]
+    """
+    m = re.match(r"^(?P<code>.*?)(?P<cm>\s*#\s+)(?P<comment>.+)$", line)
+    if not m:
+        return [line]
+    code = m.group("code")
+    cm = m.group("cm")
+    comment = m.group("comment")
+
+    # Get the overall leading whitespace from the entire line.
+    leading_ws = re.match(r"^(\s*)", line).group(1)
+
+    first_width = max_len - len(code) - len(cm)
+    # For subsequent lines, we want the available width after the overall indentation and "# ".
+    subsequent_width = max_len - len(leading_ws) - 2  # 2 for "# "
+    if first_width < 1:
+        return [line]
+
+    # Manually fill the first line.
+    words = comment.split()
+    first_line_words = []
+    current_len = 0
+    while words:
+        word = words[0]
+        if not first_line_words:
+            if len(word) <= first_width:
+                first_line_words.append(word)
+                current_len = len(word)
+                words.pop(0)
+            else:
+                first_line_words.append(word)
+                words.pop(0)
+                break
+        else:
+            if current_len + 1 + len(word) <= first_width:
+                first_line_words.append(word)
+                current_len += 1 + len(word)
+                words.pop(0)
+            else:
+                break
+    first_line_text = " ".join(first_line_words)
+    remaining_text = " ".join(words)
+    subsequent_lines = (
+        textwrap.wrap(
+            remaining_text,
+            width=subsequent_width,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        if remaining_text
+        else []
+    )
+    result = []
+    # The first line preserves the original code and inline comment marker.
+    result.append("{}{}{}".format(code, cm, first_line_text))
+    # Subsequent lines use the overall leading whitespace plus a standard "# " prefix.
+    for l in subsequent_lines:
+        result.append("{}# {}".format(leading_ws, l))
+    return result
+
+
 def process_comments(text, max_len):
     """
-    Process the text to auto-wrap single-line comments.
-    It splits the text into lines, wraps each comment line, and then rejoins.
+    Process the text to auto-wrap both standalone and inline comments.
+    It splits the text into lines, checks for inline comments, wraps them,
+    and then rejoins.
     """
-    lines = text.splitlines()
     new_lines = []
-    for line in lines:
-        if re.match(r"^\s*#", line):
-            wrapped_line = wrap_comment_line(line, max_len)
-            new_lines.extend(wrapped_line.splitlines())
+    for line in text.splitlines():
+        if "#" in line:
+            m = re.match(r"^(?P<code>.*?)(\s*#\s+)(?P<comment>.+)$", line)
+            if m:
+                code = m.group("code")
+                if code.strip() == "":
+                    # Standalone comment.
+                    wrapped = wrap_comment_line(line, max_len)
+                    new_lines.extend(wrapped.splitlines())
+                else:
+                    # Inline comment.
+                    wrapped_lines = wrap_inline_comment_line(line, max_len)
+                    new_lines.extend(wrapped_lines)
+            else:
+                new_lines.append(line)
         else:
             new_lines.append(line)
     return "\n".join(new_lines)

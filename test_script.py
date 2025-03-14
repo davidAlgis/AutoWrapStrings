@@ -21,7 +21,8 @@ def example_function():
     # A triple-quoted string that is long:
     triple_string = """odio enim. Conubia accumsan feugiat tristique dignissim condimentum enim egestas nibh. Inceptos vulputate maximus primis fringilla consectetur sodales justo duis sagittis. Lectus nibh risus lorem mauris montes himenaeos ad eros. Cras tellus pellentesque auctor mattis eleifend suscipit sagittis parturient. Curae sagittis aenean lacinia quisque justo.
 Integer ac quam platea montes aliquet sem erat! Urna netus risus himenaeos quis netus aene"""
-    # test if adding quote in comment result in some weird change himenaeos quis netus aene
+    platea = 0  # test if adding quote in comment result in some weird change himenaeos quis netus aene
+
     # '
     print(
         "Cras tellus pellentesque auctor mattis eleifend suscipit sagittis parturient"
