@@ -1,7 +1,7 @@
-"""Process string literals for auto wrapping.
+"""Process string literals and comments for auto wrapping.
 
 This module implements auto wrap functionality for Python string literals
-in Sublime Text on file save.
+and single-line comments in Sublime Text on file save.
 """
 
 import re
@@ -175,7 +175,7 @@ def replace_string(match, max_len, literal_indent, prefix, quote):
             wrapped_lines.append("")
 
         literals = []
-        # The first line always starts with the original prefix.
+        # The first line always keeps the original prefix.
         literals.append(
             "{}{}{}{}".format(prefix, quote, wrapped_lines[0], quote)
         )
@@ -211,8 +211,48 @@ def process_text(text, max_len):
     return re.sub(pattern, repl, text, flags=re.DOTALL)
 
 
+def wrap_comment_line(line, max_len):
+    """
+    Wrap a single-line comment into multiple lines if it exceeds max_len.
+    It preserves the indentation and '#' marker.
+    """
+    match = re.match(r"^(?P<indent>\s*#\s*)(?P<content>.*)$", line)
+    if not match:
+        return line
+    indent = match.group("indent")
+    content = match.group("content")
+    available_width = max_len - len(indent)
+    if available_width <= 0:
+        return line
+    wrapped_lines = textwrap.wrap(
+        content,
+        width=available_width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    if not wrapped_lines:
+        return line
+    return "\n".join(indent + l for l in wrapped_lines)
+
+
+def process_comments(text, max_len):
+    """
+    Process the text to auto-wrap single-line comments.
+    It splits the text into lines, wraps each comment line, and then rejoins.
+    """
+    lines = text.splitlines()
+    new_lines = []
+    for line in lines:
+        if re.match(r"^\s*#", line):
+            wrapped_line = wrap_comment_line(line, max_len)
+            new_lines.extend(wrapped_line.splitlines())
+        else:
+            new_lines.append(line)
+    return "\n".join(new_lines)
+
+
 class AutoWrapOnSave(sublime_plugin.EventListener):
-    """Listen for file save events and auto wrap string literals."""
+    """Listen for file save events and auto wrap string literals and comments."""
 
     def on_pre_save(self, view):
         """Handle the pre-save event to apply auto-wrap to Python files."""
@@ -226,6 +266,7 @@ class AutoWrapOnSave(sublime_plugin.EventListener):
         original_text = view.substr(region)
         max_len = settings.get("max-line-length", 79)
         new_text = process_text(original_text, max_len)
+        new_text = process_comments(new_text, max_len)
         if new_text != original_text:
             view.run_command("auto_wrap_replace", {"text": new_text})
             sublime.status_message("Auto-wrap applied.")
@@ -243,7 +284,7 @@ class AutoWrapReplaceCommand(sublime_plugin.TextCommand):
 
 
 class AutoWrapApplyCommand(sublime_plugin.TextCommand):
-    """Manually apply auto wrapping to string literals."""
+    """Manually apply auto wrapping to string literals and comments."""
 
     def run(self, edit):
         """Apply auto wrapping to the current file."""
@@ -252,6 +293,7 @@ class AutoWrapApplyCommand(sublime_plugin.TextCommand):
         region = sublime.Region(0, self.view.size())
         original_text = self.view.substr(region)
         new_text = process_text(original_text, max_len)
+        new_text = process_comments(new_text, max_len)
         if new_text != original_text:
             self.view.run_command("auto_wrap_replace", {"text": new_text})
             sublime.status_message("Auto-wrap applied manually.")
